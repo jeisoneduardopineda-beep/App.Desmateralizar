@@ -86,7 +86,11 @@ if st.button("🚀 Procesar"):
         # Captura:
         # 37.0.pdf
         # 37.2.1.pdf
-        match = re.match(r"^(\d+)\.(.+)\.pdf$", nombre)
+        match = re.match(r"^(\d+)\.([0-9]+(?:\.[0-9]+)*)", nombre)
+subtipo_raw = match.group(2)
+
+# Normalizar: elimina (2), (3), espacios, etc.
+subtipo_norm = re.sub(r"\s*\(\d+\)", "", subtipo_raw).strip()
         if not match:
             errores.append(f"{nombre} (formato inválido)")
             continue
@@ -94,7 +98,7 @@ if st.button("🚀 Procesar"):
         consecutivo = int(match.group(1))
         subtipo = match.group(2)
 
-        pdf_groups[consecutivo].append((subtipo, pdf))
+       pdf_groups[(consecutivo, subtipo_norm)].append((subtipo_norm, pdf))
 
     # -------- DEBUG VISUAL --------
     st.write("📌 Consecutivos en Excel:", sorted(mapa_excel.keys()))
@@ -105,7 +109,7 @@ if st.button("🚀 Procesar"):
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        for consecutivo, archivos in pdf_groups.items():
+        for (consecutivo, subtipo_norm), archivos in pdf_groups.items():
 
             if consecutivo not in mapa_excel:
                 errores.append(f"Consecutivo {consecutivo} no existe en Excel")
@@ -113,18 +117,21 @@ if st.button("🚀 Procesar"):
 
             factura = mapa_excel[consecutivo]
 
-            for subtipo, pdf in archivos:
-                # Tomar SOLO el primer número del subtipo
-                base_subtipo = subtipo.split(".")[0]
-                abrev = MAP_ABREV.get(base_subtipo, "OTRO")
+         # Abrimos un solo documento
+doc = fitz.open()
 
-                doc = fitz.open()
-                doc.insert_pdf(
-                    fitz.open(stream=pdf.read(), filetype="pdf")
-                )
+for _, pdf in archivos:
+    doc.insert_pdf(
+        fitz.open(stream=pdf.read(), filetype="pdf")
+    )
 
-                nombre_final = f"{abrev}_{nit}_{factura}.pdf"
-                zipf.writestr(nombre_final, doc.write())
+# Abreviatura según subtipo base
+base_subtipo = subtipo_norm.split(".")[0]
+abrev = MAP_ABREV.get(base_subtipo, "OTRO")
+
+nombre_final = f"{abrev}_{nit}_{factura}.pdf"
+zipf.writestr(nombre_final, doc.write())
+
 
     # -------- RESULTADOS --------
     if errores:
