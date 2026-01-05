@@ -47,7 +47,7 @@ excel = st.file_uploader(
     type=["xlsx"]
 )
 
-nit = st.text_input("🏷️ NIT del prestador", placeholder="900364721")
+nit = st.text_input("🏷️ NIT del prestador", placeholder="")
 
 # ===============================
 # PROCESO
