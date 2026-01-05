@@ -30,7 +30,7 @@ MAP_ABREV = {
 # CONFIG STREAMLIT
 # ===============================
 st.set_page_config(
-    page_title="Renombrador de PDFs – Radicación",
+    page_title="Renombrador de PDFs (Desmaterializacion) – Soportes-Radicación",
     layout="centered"
 )
 
