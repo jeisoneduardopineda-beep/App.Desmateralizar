@@ -25,7 +25,7 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    df = pd.read_excel(excel)
+    df = pd.read_excel(excel, engine="openpyxl")
     onc_list = df.iloc[:,0].tolist()
 
     grupos = defaultdict(list)
