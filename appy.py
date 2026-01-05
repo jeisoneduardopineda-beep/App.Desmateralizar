@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import fitz  # PyMuPDF
+import fitz
 import re
 import zipfile
 from io import BytesIO
@@ -26,7 +26,7 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel (Consecutivo base | Factura)",
+    "📊 Excel (Col A = consecutivo | Col B = factura)",
     type=["xlsx"]
 )
 
@@ -38,63 +38,67 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    # 📌 Leer Excel
+    # === LEER EXCEL ===
     df = pd.read_excel(excel, engine="openpyxl")
     df.columns = ["consecutivo", "factura"] + list(df.columns[2:])
 
     df["consecutivo"] = df["consecutivo"].astype(int)
-    df["factura"] = df["factura"].astype(str)
+    df["factura"] = df["factura"].astype(str).str.strip()
 
-    # 📌 Agrupar PDFs por consecutivo base
-    pdf_por_consecutivo = defaultdict(list)
+    # Diccionario exacto
+    excel_map = dict(zip(df["consecutivo"], df["factura"]))
+
+    # === AGRUPAR PDFs POR CONSECUTIVO BASE ===
+    pdf_map = defaultdict(list)
+    errores = []
 
     for pdf in pdfs:
-        nombre = pdf.name.replace(".pdf", "")
-        match = re.match(r"^(\d+)\.(\d+)", nombre)
+        nombre = pdf.name.strip()
 
+        match = re.match(r"^(\d+)\.(\d+)", nombre)
         if not match:
+            errores.append(f"{nombre} (formato inválido)")
             continue
 
-        consecutivo_pdf, subtipo = match.groups()
-        pdf_por_consecutivo[int(consecutivo_pdf)].append((subtipo, pdf))
+        consecutivo = int(match.group(1))
+        subtipo = match.group(2)
+
+        pdf_map[consecutivo].append((int(subtipo), pdf))
 
     buffer_zip = BytesIO()
-    errores = []
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        for _, fila in df.iterrows():
-            consecutivo = fila["consecutivo"]
-            factura = fila["factura"]
+        # 🔥 AHORA SE RECORREN LOS PDFs, NO EL EXCEL
+        for consecutivo, archivos in pdf_map.items():
 
-            if consecutivo not in pdf_por_consecutivo:
-                errores.append(f"Consecutivo {consecutivo} sin PDFs asociados")
+            if consecutivo not in excel_map:
+                errores.append(f"PDF con consecutivo {consecutivo} sin referencia en Excel")
                 continue
 
-            archivos = sorted(
-                pdf_por_consecutivo[consecutivo],
-                key=lambda x: int(x[0])
-            )
+            factura = excel_map[consecutivo]
+
+            # Ordenar por subtipo: 0,1,2,3...
+            archivos.sort(key=lambda x: x[0])
 
             doc = fitz.open()
 
-            for subtipo, pdf in archivos:
+            for _, pdf in archivos:
                 doc.insert_pdf(
                     fitz.open(stream=pdf.read(), filetype="pdf")
                 )
 
-            # La abreviatura se toma del primer subtipo
-            abrev = MAP_ABREV.get(archivos[0][0], "OTRO")
+            abrev = MAP_ABREV.get(str(archivos[0][0]), "OTRO")
 
             nombre_final = f"{abrev}_{nit}_{factura}.pdf"
             zipf.writestr(nombre_final, doc.write())
 
     if errores:
-        st.warning("⚠️ Consecutivos sin PDFs:")
+        st.warning("⚠️ Archivos con observaciones:")
         for e in errores:
             st.text(f"- {e}")
 
-    st.success("✅ Proceso completado correctamente (Excel manda)")
+    st.success("✅ Proceso completado (PDFs 100% asociados al Excel)")
 
     st.download_button(
         "⬇️ Descargar ZIP",
