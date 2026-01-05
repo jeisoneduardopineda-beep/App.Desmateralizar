@@ -1,17 +1,34 @@
 import streamlit as st
 import pandas as pd
-import fitz
+import fitz  # PyMuPDF
 import re
 import zipfile
 from io import BytesIO
 from collections import defaultdict
 
+# ===============================
+# MAPA DE ABREVIATURAS
+# ===============================
 MAP_ABREV = {
-    "0": "FAC", "1": "HEV", "2": "EPI", "3": "PDX", "4": "DQX",
-    "5": "RAN", "6": "CRC", "7": "TAP", "8": "TNA", "9": "FMO",
-    "10": "OPF", "11": "HAM", "12": "ADRES", "13": "PDE"
+    "0": "FAC",
+    "1": "HEV",
+    "2": "EPI",
+    "3": "PDX",
+    "4": "DQX",
+    "5": "RAN",
+    "6": "CRC",
+    "7": "TAP",
+    "8": "TNA",
+    "9": "FMO",
+    "10": "OPF",
+    "11": "HAM",
+    "12": "ADRES",
+    "13": "PDE"
 }
 
+# ===============================
+# CONFIG STREAMLIT
+# ===============================
 st.set_page_config(
     page_title="Renombrador de PDFs – Radicación",
     layout="centered"
@@ -26,75 +43,96 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel (Col A = consecutivo | Col B = factura)",
+    "📊 Excel base de facturas (con consecutivo)",
     type=["xlsx"]
 )
 
 nit = st.text_input("🏷️ NIT del prestador", placeholder="900364721")
 
+# ===============================
+# PROCESO
+# ===============================
 if st.button("🚀 Procesar"):
 
     if not pdfs or not excel or not nit:
-        st.error("Faltan archivos o NIT")
+        st.error("Faltan PDFs, Excel o NIT")
         st.stop()
 
-    # === LEER EXCEL ===
-    df = pd.read_excel(excel, engine="openpyxl")
-    df.columns = ["consecutivo", "factura"] + list(df.columns[2:])
+    # -------- LEER EXCEL --------
+    try:
+        df = pd.read_excel(excel, engine="openpyxl")
+    except Exception as e:
+        st.error(f"Error leyendo el Excel: {e}")
+        st.stop()
+
+    # Forzamos estructura:
+    # Col A = consecutivo | Col B = factura
+    df = df.iloc[:, :2]
+    df.columns = ["consecutivo", "factura"]
 
     df["consecutivo"] = df["consecutivo"].astype(int)
-    df["factura"] = df["factura"].astype(str).str.strip()
+    df["factura"] = df["factura"].astype(str)
 
-    excel_map = dict(zip(df["consecutivo"], df["factura"]))
+    # Diccionario CLAVE → VALOR
+    mapa_excel = dict(zip(df["consecutivo"], df["factura"]))
 
-    # === AGRUPAR PDFs POR CONSECUTIVO BASE ===
+    # -------- AGRUPAR PDFs POR CONSECUTIVO BASE --------
     pdf_groups = defaultdict(list)
     errores = []
 
     for pdf in pdfs:
-        nombre = pdf.name
+        nombre = pdf.name.strip()
 
-        m = re.match(r"^(\d+)\.(.+)\.pdf$", nombre)
-        if not m:
+        # Captura:
+        # 37.0.pdf
+        # 37.2.1.pdf
+        match = re.match(r"^(\d+)\.(.+)\.pdf$", nombre)
+        if not match:
             errores.append(f"{nombre} (formato inválido)")
             continue
 
-        consecutivo_base = int(m.group(1))
-        subtipo = m.group(2)
+        consecutivo = int(match.group(1))
+        subtipo = match.group(2)
 
-        pdf_groups[consecutivo_base].append((subtipo, pdf))
+        pdf_groups[consecutivo].append((subtipo, pdf))
 
+    # -------- DEBUG VISUAL --------
+    st.write("📌 Consecutivos en Excel:", sorted(mapa_excel.keys()))
+    st.write("📌 Consecutivos detectados en PDFs:", sorted(pdf_groups.keys()))
+
+    # -------- PROCESAR --------
     buffer_zip = BytesIO()
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
         for consecutivo, archivos in pdf_groups.items():
 
-            if consecutivo not in excel_map:
+            if consecutivo not in mapa_excel:
                 errores.append(f"Consecutivo {consecutivo} no existe en Excel")
                 continue
 
-            factura = excel_map[consecutivo]
+            factura = mapa_excel[consecutivo]
 
-            doc = fitz.open()
+            for subtipo, pdf in archivos:
+                # Tomar SOLO el primer número del subtipo
+                base_subtipo = subtipo.split(".")[0]
+                abrev = MAP_ABREV.get(base_subtipo, "OTRO")
 
-            for _, pdf in sorted(archivos):
+                doc = fitz.open()
                 doc.insert_pdf(
                     fitz.open(stream=pdf.read(), filetype="pdf")
                 )
 
-            primer_subtipo = archivos[0][0].split(".")[0]
-            abrev = MAP_ABREV.get(primer_subtipo, "OTRO")
+                nombre_final = f"{abrev}_{nit}_{factura}.pdf"
+                zipf.writestr(nombre_final, doc.write())
 
-            nombre_final = f"{abrev}_{nit}_{factura}.pdf"
-            zipf.writestr(nombre_final, doc.write())
-
+    # -------- RESULTADOS --------
     if errores:
-        st.warning("⚠️ Archivos con observaciones:")
+        st.warning("⚠️ Archivos con problemas:")
         for e in errores:
             st.text(f"- {e}")
 
-    st.success("✅ Proceso completado. Excel y PDFs correlacionados correctamente.")
+    st.success("✅ Proceso completado correctamente")
 
     st.download_button(
         "⬇️ Descargar ZIP",
