@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import fitz
+import fitz  # PyMuPDF
 import re
 import zipfile
 import os
@@ -13,7 +13,11 @@ MAP_ABREV = {
     "10": "OPF", "11": "HAM", "12": "ADRES", "13": "PDE"
 }
 
-st.set_page_config("Renombrador de PDFs – Radicación", layout="centered")
+st.set_page_config(
+    page_title="Renombrador de PDFs – Radicación",
+    layout="centered"
+)
+
 st.title("Renombrador masivo de PDFs – Radicación")
 
 pdfs = st.file_uploader(
@@ -23,8 +27,8 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel base de facturas",
-    type=["xlsx", "xls"]
+    "📊 Excel base de facturas (.xlsx)",
+    type=["xlsx"]
 )
 
 nit = st.text_input("🏷️ NIT del prestador", placeholder="900364721")
@@ -35,18 +39,17 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    # 🔹 Leer Excel según extensión
-    ext = os.path.splitext(excel.name)[1].lower()
-
-    if ext == ".xlsx":
-        df = pd.read_excel(excel, engine="openpyxl")
-    elif ext == ".xls":
-        df = pd.read_excel(excel, engine="xlrd")
-    else:
-        st.error("Formato de Excel no soportado")
+    # 🔹 Leer Excel de forma segura (Cloud-safe)
+    try:
+        df = pd.read_excel(
+            BytesIO(excel.getvalue()),
+            engine="openpyxl"
+        )
+    except Exception as e:
+        st.error(f"Error leyendo el Excel: {e}")
         st.stop()
 
-    # 🔹 Obtener lista de ONC (primera columna)
+    # 🔹 ONC desde la primera columna
     onc_list = df.iloc[:, 0].astype(str).tolist()
 
     grupos = defaultdict(list)
@@ -59,15 +62,20 @@ if st.button("🚀 Procesar"):
             factura, subtipo = match.groups()
             grupos[(factura, subtipo)].append(pdf)
 
+    if not grupos:
+        st.warning("No se encontraron PDFs con formato factura.subtipo")
+        st.stop()
+
     buffer_zip = BytesIO()
 
     with zipfile.ZipFile(buffer_zip, "w") as zipf:
-
         for (factura, subtipo), archivos in grupos.items():
             doc = fitz.open()
 
             for pdf in archivos:
-                doc.insert_pdf(fitz.open(stream=pdf.read(), filetype="pdf"))
+                doc.insert_pdf(
+                    fitz.open(stream=pdf.read(), filetype="pdf")
+                )
 
             idx = int(factura) - 1
 
@@ -77,8 +85,8 @@ if st.button("🚀 Procesar"):
 
             onc = onc_list[idx]
             abrev = MAP_ABREV.get(subtipo, "OTRO")
-
             nombre = f"{abrev}_{nit}_{onc}.pdf"
+
             zipf.writestr(nombre, doc.write())
 
     st.success("✅ Proceso completado")
