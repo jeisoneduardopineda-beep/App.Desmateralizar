@@ -25,7 +25,7 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel base de facturas",
+    "📊 Excel base de facturas (con consecutivo)",
     type=["xlsx"]
 )
 
@@ -44,54 +44,49 @@ if st.button("🚀 Procesar"):
         st.error(f"Error leyendo el Excel: {e}")
         st.stop()
 
-    onc_list = df.iloc[:, 0].astype(str).tolist()
+    # Col A = consecutivo | Col B = ONC
+    df.columns = ["consecutivo", "onc"] + list(df.columns[2:])
+    df["consecutivo"] = df["consecutivo"].astype(int)
+    df["onc"] = df["onc"].astype(str)
 
-    # 📌 Extraer y ordenar PDFs por el número que traen
-    items = []
-
-    for pdf in pdfs:
-        name = pdf.name.replace(".pdf", "")
-        match = re.match(r"(\d+)\.(\d+)", name)
-        if match:
-            factura, subtipo = match.groups()
-            items.append((int(factura), subtipo, pdf))
-
-    if not items:
-        st.error("No se encontraron PDFs con formato factura.subtipo.pdf")
-        st.stop()
-
-    # Orden real por número original (solo para mantener orden)
-    items.sort(key=lambda x: x[0])
-
-    # 📌 Secuencia corregida
-    factura_inicial = items[0][0]
-    factura_virtual = factura_inicial
+    # Diccionario rápido: consecutivo → ONC
+    mapa_excel = dict(zip(df["consecutivo"], df["onc"]))
 
     buffer_zip = BytesIO()
+    errores = []
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        for _, subtipo, pdf in items:
+        for pdf in pdfs:
+            name = pdf.name.replace(".pdf", "")
+            match = re.match(r"(\d+)\.(\d+)", name)
 
-            idx = factura_virtual - factura_inicial
+            if not match:
+                errores.append(f"{pdf.name} (formato inválido)")
+                continue
 
-            if idx >= len(onc_list):
-                st.warning(f"Factura virtual {factura_virtual} fuera de rango en el Excel")
-                break
+            factura_pdf, subtipo = match.groups()
+            factura_pdf = int(factura_pdf)
+
+            if factura_pdf not in mapa_excel:
+                errores.append(f"{pdf.name} (no existe en Excel)")
+                continue
+
+            onc = mapa_excel[factura_pdf]
+            abrev = MAP_ABREV.get(subtipo, "OTRO")
 
             doc = fitz.open()
             doc.insert_pdf(fitz.open(stream=pdf.read(), filetype="pdf"))
 
-            onc = onc_list[idx]
-            abrev = MAP_ABREV.get(subtipo, "OTRO")
-
             nombre = f"{abrev}_{nit}_{onc}.pdf"
             zipf.writestr(nombre, doc.write())
 
-            # 🔥 AQUÍ SE CORRIGE EL SALTO
-            factura_virtual += 1
+    if errores:
+        st.warning("⚠️ Algunos archivos no se procesaron:")
+        for e in errores:
+            st.text(f"- {e}")
 
-    st.success("✅ Proceso completado con corrección automática de consecutivos")
+    st.success("✅ Proceso completado usando el consecutivo del Excel")
 
     st.download_button(
         "⬇️ Descargar ZIP",
