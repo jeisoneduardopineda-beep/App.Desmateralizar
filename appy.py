@@ -25,8 +25,15 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
+    ext = os.path.splitext(excel.name)[1].lower()
+
+if ext == ".xlsx":
     df = pd.read_excel(excel, engine="openpyxl")
-    onc_list = df.iloc[:,0].tolist()
+elif ext == ".xls":
+    df = pd.read_excel(excel, engine="xlrd")
+else:
+    st.error("Formato de Excel no soportado")
+    st.stop()
 
     grupos = defaultdict(list)
 
