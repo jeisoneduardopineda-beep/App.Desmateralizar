@@ -3,9 +3,7 @@ import pandas as pd
 import fitz  # PyMuPDF
 import re
 import zipfile
-import os
 from io import BytesIO
-from collections import defaultdict
 
 MAP_ABREV = {
     "0": "FAC", "1": "HEV", "2": "EPI", "3": "PDX", "4": "DQX",
@@ -39,45 +37,50 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    # ✅ Leer Excel SIEMPRE con openpyxl
+    # Leer Excel
     try:
         df = pd.read_excel(excel, engine="openpyxl")
     except Exception as e:
         st.error(f"Error leyendo el Excel: {e}")
         st.stop()
 
-    # Primera columna = ONC
     onc_list = df.iloc[:, 0].astype(str).tolist()
 
-    grupos = defaultdict(list)
+    # 📌 Extraer y ordenar PDFs por el número que traen
+    items = []
 
-    # Agrupar PDFs por factura.subtipo
     for pdf in pdfs:
         name = pdf.name.replace(".pdf", "")
         match = re.match(r"(\d+)\.(\d+)", name)
         if match:
             factura, subtipo = match.groups()
-            grupos[(factura, subtipo)].append(pdf)
+            items.append((int(factura), subtipo, pdf))
 
-    if not grupos:
+    if not items:
         st.error("No se encontraron PDFs con formato factura.subtipo.pdf")
         st.stop()
+
+    # Orden real por número original (solo para mantener orden)
+    items.sort(key=lambda x: x[0])
+
+    # 📌 Secuencia corregida
+    factura_inicial = items[0][0]
+    factura_virtual = factura_inicial
 
     buffer_zip = BytesIO()
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        for (factura, subtipo), archivos in grupos.items():
-            doc = fitz.open()
+        for _, subtipo, pdf in items:
 
-            for pdf in archivos:
-                doc.insert_pdf(fitz.open(stream=pdf.read(), filetype="pdf"))
-
-            idx = int(factura) - 1
+            idx = factura_virtual - factura_inicial
 
             if idx >= len(onc_list):
-                st.warning(f"Factura {factura} fuera de rango en el Excel")
-                continue
+                st.warning(f"Factura virtual {factura_virtual} fuera de rango en el Excel")
+                break
+
+            doc = fitz.open()
+            doc.insert_pdf(fitz.open(stream=pdf.read(), filetype="pdf"))
 
             onc = onc_list[idx]
             abrev = MAP_ABREV.get(subtipo, "OTRO")
@@ -85,7 +88,10 @@ if st.button("🚀 Procesar"):
             nombre = f"{abrev}_{nit}_{onc}.pdf"
             zipf.writestr(nombre, doc.write())
 
-    st.success("✅ Proceso completado")
+            # 🔥 AQUÍ SE CORRIGE EL SALTO
+            factura_virtual += 1
+
+    st.success("✅ Proceso completado con corrección automática de consecutivos")
 
     st.download_button(
         "⬇️ Descargar ZIP",
