@@ -59,15 +59,10 @@ if st.button("🚀 Procesar"):
         st.stop()
 
     # -------- LEER EXCEL --------
-    try:
-        df = pd.read_excel(excel, engine="openpyxl")
-    except Exception as e:
-        st.error(f"Error leyendo el Excel: {e}")
-        st.stop()
-
-    # Forzar estructura
+    df = pd.read_excel(excel, engine="openpyxl")
     df = df.iloc[:, :2]
     df.columns = ["consecutivo", "factura"]
+
     df["consecutivo"] = df["consecutivo"].astype(int)
     df["factura"] = df["factura"].astype(str)
 
@@ -80,51 +75,50 @@ if st.button("🚀 Procesar"):
     for pdf in pdfs:
         nombre = pdf.name.strip()
 
-        # Regex que acepta:
+        # Acepta:
         # 37.1.pdf
         # 37.1 (2).pdf
         # 37.1 (3).pdf
-        match = re.match(r"^(\d+)\.([0-9]+(?:\.[0-9]+)*)(?:\s*\(\d+\))?\.pdf$", nombre)
+        match = re.match(
+            r"^(\d+)\.(\d+)(?:\s*\(\d+\))?\.pdf$",
+            nombre
+        )
 
         if not match:
             errores.append(f"{nombre} (formato inválido)")
             continue
 
         consecutivo = int(match.group(1))
-        subtipo_raw = match.group(2)
+        subtipo = match.group(2)  # ← ESTE ES EL SUBTIPO REAL
 
-        # Normalizar subtipo (37.1)
-        subtipo_norm = subtipo_raw.strip()
-
-        pdf_groups[(consecutivo, subtipo_norm)].append(pdf)
-
-    # -------- DEBUG --------
-    st.write("📌 Consecutivos Excel:", sorted(mapa_excel.keys()))
-    st.write("📌 Grupos PDF:", sorted(pdf_groups.keys()))
+        pdf_groups[(consecutivo, subtipo)].append(pdf)
 
     # -------- PROCESAR --------
     buffer_zip = BytesIO()
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        for (consecutivo, subtipo_norm), archivos in pdf_groups.items():
+        for (consecutivo, subtipo), archivos in pdf_groups.items():
 
             if consecutivo not in mapa_excel:
                 errores.append(f"Consecutivo {consecutivo} no existe en Excel")
                 continue
 
+            if subtipo not in MAP_ABREV:
+                errores.append(
+                    f"Subtipo {subtipo} no definido en MAP_ABREV (consecutivo {consecutivo})"
+                )
+                continue
+
             factura = mapa_excel[consecutivo]
+            abrev = MAP_ABREV[subtipo]
 
-            # Unificar PDFs del mismo subtipo (37.1, 37.1 (2), 37.1 (3))
+            # Unificar PDFs
             doc = fitz.open()
-
             for pdf in archivos:
                 doc.insert_pdf(
                     fitz.open(stream=pdf.read(), filetype="pdf")
                 )
-
-            base_subtipo = subtipo_norm.split(".")[0]
-            abrev = MAP_ABREV.get(base_subtipo, "OTRO")
 
             nombre_final = f"{abrev}_{nit}_{factura}.pdf"
             zipf.writestr(nombre_final, doc.write())
