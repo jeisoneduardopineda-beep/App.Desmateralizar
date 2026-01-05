@@ -85,11 +85,11 @@ if st.button("🚀 Procesar"):
         )
 
         if not match:
-            errores.append(f"{nombre} (formato inválido)")
+            errores.append(f"{nombre} → formato inválido")
             continue
 
         consecutivo = int(match.group(1))
-        subtipo = match.group(2)  # ← ESTE ES EL SUBTIPO REAL
+        subtipo = match.group(2)  # ESTE es el subtipo real
 
         pdf_groups[(consecutivo, subtipo)].append(pdf)
 
@@ -108,7 +108,7 @@ if st.button("🚀 Procesar"):
                 errores.append(
                     f"Subtipo {subtipo} no definido en MAP_ABREV (consecutivo {consecutivo})"
                 )
-                continue
+                continue  # 🔥 NO SE CREA PDF
 
             factura = mapa_excel[consecutivo]
             abrev = MAP_ABREV[subtipo]
@@ -125,11 +125,11 @@ if st.button("🚀 Procesar"):
 
     # -------- RESULTADOS --------
     if errores:
-        st.warning("⚠️ Archivos con problemas:")
+        st.warning("⚠️ Archivos NO procesados:")
         for e in errores:
             st.text(f"- {e}")
 
-    st.success("✅ Proceso completado correctamente")
+    st.success("✅ Proceso completado (sin OTRO, validación estricta)")
 
     st.download_button(
         "⬇️ Descargar ZIP",
