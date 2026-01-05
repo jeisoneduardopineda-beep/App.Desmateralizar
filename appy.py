@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import fitz
+import fitz  # PyMuPDF
 import re
 import zipfile
 from io import BytesIO
@@ -12,7 +12,11 @@ MAP_ABREV = {
     "10": "OPF", "11": "HAM", "12": "ADRES", "13": "PDE"
 }
 
-st.set_page_config("Renombrador de PDFs – Radicación", layout="centered")
+st.set_page_config(
+    page_title="Renombrador de PDFs – Radicación",
+    layout="centered"
+)
+
 st.title("Renombrador masivo de PDFs – Radicación")
 
 pdfs = st.file_uploader(
@@ -22,7 +26,7 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel base (consecutivo | factura)",
+    "📊 Excel base (Consecutivo | Factura)",
     type=["xlsx"]
 )
 
@@ -34,63 +38,61 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    # 🔹 Leer Excel
+    # 📌 Leer Excel
     df = pd.read_excel(excel, engine="openpyxl")
-
-    # Col A = consecutivo | Col B = factura
     df.columns = ["consecutivo", "factura"] + list(df.columns[2:])
     df["consecutivo"] = df["consecutivo"].astype(int)
     df["factura"] = df["factura"].astype(str)
 
-    # 🔹 Mapa REAL: consecutivo → factura
-    mapa_excel = dict(zip(df["consecutivo"], df["factura"]))
-
-    # 🔹 Agrupar PDFs por (consecutivo, tipo)
-    grupos = defaultdict(list)
-    errores = []
+    # 📌 Agrupar PDFs por consecutivo base
+    grupos_pdf = defaultdict(list)
 
     for pdf in pdfs:
         nombre = pdf.name.replace(".pdf", "")
-        match = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?$", nombre)
+        match = re.match(r"(\d+)\.(\d+)", nombre)
 
         if not match:
-            errores.append(f"{pdf.name} (formato inválido)")
             continue
 
-        consecutivo, tipo, fragmento = match.groups()
-        consecutivo = int(consecutivo)
-
-        grupos[(consecutivo, tipo)].append((fragmento, pdf))
+        consecutivo_pdf, subtipo = match.groups()
+        grupos_pdf[int(consecutivo_pdf)].append((int(subtipo), pdf))
 
     buffer_zip = BytesIO()
+    errores = []
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        for (consecutivo, tipo), archivos in grupos.items():
+        for _, fila in df.iterrows():
+            consecutivo = fila["consecutivo"]
+            factura = fila["factura"]
 
-            if consecutivo not in mapa_excel:
-                errores.append(f"{consecutivo} no existe en Excel")
+            if consecutivo not in grupos_pdf:
+                errores.append(f"Consecutivo {consecutivo} sin PDFs")
                 continue
 
-            factura = mapa_excel[consecutivo]
-            abrev = MAP_ABREV.get(tipo, "OTRO")
-
-            # Ordenar: base → .1 → .2 → .3
-            archivos.sort(key=lambda x: (x[0] is not None, int(x[0]) if x[0] else 0))
+            # Ordenar por subtipo (0,1,2…)
+            archivos = sorted(grupos_pdf[consecutivo], key=lambda x: x[0])
 
             doc = fitz.open()
-            for _, pdf in archivos:
-                doc.insert_pdf(fitz.open(stream=pdf.read(), filetype="pdf"))
+
+            for subtipo, pdf in archivos:
+                doc.insert_pdf(
+                    fitz.open(stream=pdf.read(), filetype="pdf")
+                )
+
+            # Usar el subtipo del primer archivo para la abreviatura
+            subtipo_base = str(archivos[0][0])
+            abrev = MAP_ABREV.get(subtipo_base, "OTRO")
 
             nombre_final = f"{abrev}_{nit}_{factura}.pdf"
             zipf.writestr(nombre_final, doc.write())
 
     if errores:
-        st.warning("⚠️ Archivos no procesados:")
+        st.warning("⚠️ Algunos consecutivos no tenían PDFs:")
         for e in errores:
             st.text(f"- {e}")
 
-    st.success("✅ Proceso completado usando el consecutivo REAL del Excel")
+    st.success("✅ Proceso completado correctamente usando el consecutivo del Excel")
 
     st.download_button(
         "⬇️ Descargar ZIP",
