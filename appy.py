@@ -12,7 +12,11 @@ MAP_ABREV = {
     "10": "OPF", "11": "HAM", "12": "ADRES", "13": "PDE"
 }
 
-st.set_page_config(page_title="Renombrador PDFs", layout="centered")
+st.set_page_config(
+    page_title="Renombrador de PDFs – Radicación",
+    layout="centered"
+)
+
 st.title("Renombrador masivo de PDFs – Radicación")
 
 pdfs = st.file_uploader(
@@ -22,7 +26,7 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel base (Consecutivo | Número factura)",
+    "📊 Excel base (factura | consecutivo)",
     type=["xlsx"]
 )
 
@@ -34,15 +38,18 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    # 🔹 Leer Excel
+    # 🔹 Leer Excel REAL
     df = pd.read_excel(excel, engine="openpyxl")
-    df.columns = ["consecutivo", "factura_final"] + list(df.columns[2:])
+
+    # Tu Excel: col A = factura | col B = consecutivo
+    df.columns = ["factura", "consecutivo"] + list(df.columns[2:])
     df["consecutivo"] = df["consecutivo"].astype(int)
-    df["factura_final"] = df["factura_final"].astype(str)
+    df["factura"] = df["factura"].astype(str)
 
-    mapa_excel = dict(zip(df["consecutivo"], df["factura_final"]))
+    # 🔹 Diccionario correcto: consecutivo → factura
+    mapa_excel = dict(zip(df["consecutivo"], df["factura"]))
 
-    # 🔹 Agrupar PDFs: consecutivo + tipo_documento
+    # 🔹 Agrupar PDFs por (consecutivo, tipo)
     grupos = defaultdict(list)
 
     for pdf in pdfs:
@@ -65,14 +72,14 @@ if st.button("🚀 Procesar"):
         for (consecutivo, tipo), archivos in grupos.items():
 
             if consecutivo not in mapa_excel:
-                errores.append(f"{consecutivo}.{tipo} → no existe en Excel")
+                errores.append(f"{consecutivo}.{tipo} → consecutivo no existe en Excel")
                 continue
 
             factura_final = mapa_excel[consecutivo]
             abrev = MAP_ABREV.get(tipo, "OTRO")
 
-            # 🔹 Ordenar fragmentos (None primero)
-            archivos.sort(key=lambda x: (x[0] is not None, x[0] or 0))
+            # Ordenar fragmentos: base primero, luego .1, .2, .3
+            archivos.sort(key=lambda x: (x[0] is not None, int(x[0]) if x[0] else 0))
 
             doc = fitz.open()
 
@@ -85,11 +92,11 @@ if st.button("🚀 Procesar"):
             zipf.writestr(nombre_final, doc.write())
 
     if errores:
-        st.warning("⚠️ Algunos documentos no se procesaron:")
+        st.warning("⚠️ Algunos archivos no se procesaron:")
         for e in errores:
             st.text(f"- {e}")
 
-    st.success("✅ Proceso completado correctamente")
+    st.success("✅ Proceso completado usando el consecutivo REAL del Excel")
 
     st.download_button(
         "⬇️ Descargar ZIP",
