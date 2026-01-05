@@ -27,7 +27,7 @@ pdfs = st.file_uploader(
 )
 
 excel = st.file_uploader(
-    "📊 Excel base de facturas (.xlsx)",
+    "📊 Excel base de facturas",
     type=["xlsx"]
 )
 
@@ -39,22 +39,19 @@ if st.button("🚀 Procesar"):
         st.error("Faltan archivos o NIT")
         st.stop()
 
-    # 🔹 Leer Excel de forma segura (Cloud-safe)
+    # ✅ Leer Excel SIEMPRE con openpyxl
     try:
-        df = pd.read_excel(
-            BytesIO(excel.getvalue()),
-            engine="openpyxl"
-        )
+        df = pd.read_excel(excel, engine="openpyxl")
     except Exception as e:
         st.error(f"Error leyendo el Excel: {e}")
         st.stop()
 
-    # 🔹 ONC desde la primera columna
+    # Primera columna = ONC
     onc_list = df.iloc[:, 0].astype(str).tolist()
 
     grupos = defaultdict(list)
 
-    # 🔹 Agrupar PDFs por factura.subtipo
+    # Agrupar PDFs por factura.subtipo
     for pdf in pdfs:
         name = pdf.name.replace(".pdf", "")
         match = re.match(r"(\d+)\.(\d+)", name)
@@ -63,19 +60,18 @@ if st.button("🚀 Procesar"):
             grupos[(factura, subtipo)].append(pdf)
 
     if not grupos:
-        st.warning("No se encontraron PDFs con formato factura.subtipo")
+        st.error("No se encontraron PDFs con formato factura.subtipo.pdf")
         st.stop()
 
     buffer_zip = BytesIO()
 
-    with zipfile.ZipFile(buffer_zip, "w") as zipf:
+    with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
+
         for (factura, subtipo), archivos in grupos.items():
             doc = fitz.open()
 
             for pdf in archivos:
-                doc.insert_pdf(
-                    fitz.open(stream=pdf.read(), filetype="pdf")
-                )
+                doc.insert_pdf(fitz.open(stream=pdf.read(), filetype="pdf"))
 
             idx = int(factura) - 1
 
@@ -85,8 +81,8 @@ if st.button("🚀 Procesar"):
 
             onc = onc_list[idx]
             abrev = MAP_ABREV.get(subtipo, "OTRO")
-            nombre = f"{abrev}_{nit}_{onc}.pdf"
 
+            nombre = f"{abrev}_{nit}_{onc}.pdf"
             zipf.writestr(nombre, doc.write())
 
     st.success("✅ Proceso completado")
