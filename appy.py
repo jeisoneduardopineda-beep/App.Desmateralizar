@@ -45,50 +45,46 @@ if st.button("🚀 Procesar"):
     df["consecutivo"] = df["consecutivo"].astype(int)
     df["factura"] = df["factura"].astype(str).str.strip()
 
-    # Diccionario exacto
     excel_map = dict(zip(df["consecutivo"], df["factura"]))
 
     # === AGRUPAR PDFs POR CONSECUTIVO BASE ===
-    pdf_map = defaultdict(list)
+    pdf_groups = defaultdict(list)
     errores = []
 
     for pdf in pdfs:
-        nombre = pdf.name.strip()
+        nombre = pdf.name
 
-        match = re.match(r"^(\d+)\.(\d+)", nombre)
-        if not match:
+        m = re.match(r"^(\d+)\.(.+)\.pdf$", nombre)
+        if not m:
             errores.append(f"{nombre} (formato inválido)")
             continue
 
-        consecutivo = int(match.group(1))
-        subtipo = match.group(2)
+        consecutivo_base = int(m.group(1))
+        subtipo = m.group(2)
 
-        pdf_map[consecutivo].append((int(subtipo), pdf))
+        pdf_groups[consecutivo_base].append((subtipo, pdf))
 
     buffer_zip = BytesIO()
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
 
-        # 🔥 AHORA SE RECORREN LOS PDFs, NO EL EXCEL
-        for consecutivo, archivos in pdf_map.items():
+        for consecutivo, archivos in pdf_groups.items():
 
             if consecutivo not in excel_map:
-                errores.append(f"PDF con consecutivo {consecutivo} sin referencia en Excel")
+                errores.append(f"Consecutivo {consecutivo} no existe en Excel")
                 continue
 
             factura = excel_map[consecutivo]
 
-            # Ordenar por subtipo: 0,1,2,3...
-            archivos.sort(key=lambda x: x[0])
-
             doc = fitz.open()
 
-            for _, pdf in archivos:
+            for _, pdf in sorted(archivos):
                 doc.insert_pdf(
                     fitz.open(stream=pdf.read(), filetype="pdf")
                 )
 
-            abrev = MAP_ABREV.get(str(archivos[0][0]), "OTRO")
+            primer_subtipo = archivos[0][0].split(".")[0]
+            abrev = MAP_ABREV.get(primer_subtipo, "OTRO")
 
             nombre_final = f"{abrev}_{nit}_{factura}.pdf"
             zipf.writestr(nombre_final, doc.write())
@@ -98,7 +94,7 @@ if st.button("🚀 Procesar"):
         for e in errores:
             st.text(f"- {e}")
 
-    st.success("✅ Proceso completado (PDFs 100% asociados al Excel)")
+    st.success("✅ Proceso completado. Excel y PDFs correlacionados correctamente.")
 
     st.download_button(
         "⬇️ Descargar ZIP",
