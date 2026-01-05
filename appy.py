@@ -65,44 +65,42 @@ if st.button("🚀 Procesar"):
         st.error(f"Error leyendo el Excel: {e}")
         st.stop()
 
-    # Forzamos estructura:
-    # Col A = consecutivo | Col B = factura
+    # Forzar estructura
     df = df.iloc[:, :2]
     df.columns = ["consecutivo", "factura"]
-
     df["consecutivo"] = df["consecutivo"].astype(int)
     df["factura"] = df["factura"].astype(str)
 
-    # Diccionario CLAVE → VALOR
     mapa_excel = dict(zip(df["consecutivo"], df["factura"]))
 
-    # -------- AGRUPAR PDFs POR CONSECUTIVO BASE --------
+    # -------- AGRUPAR PDFs --------
     pdf_groups = defaultdict(list)
     errores = []
 
     for pdf in pdfs:
         nombre = pdf.name.strip()
 
-        # Captura:
-        # 37.0.pdf
-        # 37.2.1.pdf
-        match = re.match(r"^(\d+)\.([0-9]+(?:\.[0-9]+)*)", nombre)
-subtipo_raw = match.group(2)
+        # Regex que acepta:
+        # 37.1.pdf
+        # 37.1 (2).pdf
+        # 37.1 (3).pdf
+        match = re.match(r"^(\d+)\.([0-9]+(?:\.[0-9]+)*)(?:\s*\(\d+\))?\.pdf$", nombre)
 
-# Normalizar: elimina (2), (3), espacios, etc.
-subtipo_norm = re.sub(r"\s*\(\d+\)", "", subtipo_raw).strip()
         if not match:
             errores.append(f"{nombre} (formato inválido)")
             continue
 
         consecutivo = int(match.group(1))
-        subtipo = match.group(2)
+        subtipo_raw = match.group(2)
 
-       pdf_groups[(consecutivo, subtipo_norm)].append((subtipo_norm, pdf))
+        # Normalizar subtipo (37.1)
+        subtipo_norm = subtipo_raw.strip()
 
-    # -------- DEBUG VISUAL --------
-    st.write("📌 Consecutivos en Excel:", sorted(mapa_excel.keys()))
-    st.write("📌 Consecutivos detectados en PDFs:", sorted(pdf_groups.keys()))
+        pdf_groups[(consecutivo, subtipo_norm)].append(pdf)
+
+    # -------- DEBUG --------
+    st.write("📌 Consecutivos Excel:", sorted(mapa_excel.keys()))
+    st.write("📌 Grupos PDF:", sorted(pdf_groups.keys()))
 
     # -------- PROCESAR --------
     buffer_zip = BytesIO()
@@ -117,21 +115,19 @@ subtipo_norm = re.sub(r"\s*\(\d+\)", "", subtipo_raw).strip()
 
             factura = mapa_excel[consecutivo]
 
-         # Abrimos un solo documento
-doc = fitz.open()
+            # Unificar PDFs del mismo subtipo (37.1, 37.1 (2), 37.1 (3))
+            doc = fitz.open()
 
-for _, pdf in archivos:
-    doc.insert_pdf(
-        fitz.open(stream=pdf.read(), filetype="pdf")
-    )
+            for pdf in archivos:
+                doc.insert_pdf(
+                    fitz.open(stream=pdf.read(), filetype="pdf")
+                )
 
-# Abreviatura según subtipo base
-base_subtipo = subtipo_norm.split(".")[0]
-abrev = MAP_ABREV.get(base_subtipo, "OTRO")
+            base_subtipo = subtipo_norm.split(".")[0]
+            abrev = MAP_ABREV.get(base_subtipo, "OTRO")
 
-nombre_final = f"{abrev}_{nit}_{factura}.pdf"
-zipf.writestr(nombre_final, doc.write())
-
+            nombre_final = f"{abrev}_{nit}_{factura}.pdf"
+            zipf.writestr(nombre_final, doc.write())
 
     # -------- RESULTADOS --------
     if errores:
