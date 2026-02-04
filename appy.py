@@ -10,7 +10,7 @@ from collections import defaultdict
 # MAPA DE ABREVIATURAS
 # ===============================
 MAP_ABREV = {
-    "0": "FAC",
+    "0": "FEV",
     "1": "HEV",
     "2": "EPI",
     "3": "PDX",
